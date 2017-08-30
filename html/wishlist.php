@@ -1,10 +1,8 @@
-<?php $wishlist = getWishlist($products); ?>
-
 <div class="container">
     <main class="b-main">
         <!-- Вывод товара -->
-        <?php if (isset($wishlist)): ?>
-            <?php foreach ($wishlist as $product): ?>
+        <?php if (!empty($wishlist->items)): ?>
+            <?php foreach ($wishlist->items as $product): ?>
                 <?php if ($product->visible): ?>
                     <div class="b-preview">
                         <div class="preview">
@@ -37,6 +35,8 @@
                     </div>
                 <?php endif; ?>
             <?php endforeach; ?>
-        <?php endif; ?>
+        <?php else:?>
+            <p class="page_empty">Ваш список желаний пуст</p>
+        <?php endif;?>
     </main>
 </div>

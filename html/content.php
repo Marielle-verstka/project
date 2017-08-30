@@ -17,8 +17,14 @@
             case 'wishlist':
                 require_once 'wishlist.php';
                 break;
+            case 'login':
+                require_once 'login.php';
+                break;
+            case 'sign':
+                require_once 'sign.php';
+                break;
             default:
-                require_once 'cart.php';
+                require_once 'products.php';
                 break;
         }
     } else {

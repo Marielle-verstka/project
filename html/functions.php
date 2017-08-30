@@ -2,6 +2,8 @@
     header('Content-Type: text/html; charset=utf-8');
     ini_set('display_errors',true);
     error_reporting(E_ALL);
+    session_name(md5($_SERVER['HTTP_USER_AGENT']));
+    session_start();
     require_once 'data/menu.php';
     require_once 'data/categories.php';
     require_once 'data/products.php';
@@ -139,6 +141,7 @@
     }
 
 
+
     /*** COOKIE ***/
 
     function getTimeLastVisited()
@@ -184,17 +187,18 @@
     }
 
 
-    if(isset($_GET['amount']) && isset($_GET['id'])) {
+    if(isset($_POST['amount']) && isset($_POST['id'])) {
         $cart = array();
-        $product_id = cleanInput($_GET['id']);
-        $amount = cleanInput($_GET['amount']);
+        $product_id = cleanInput($_POST['id']);
+        $amount = cleanInput($_POST['amount']);
         if(isset($_COOKIE['cart'])) {
             $cart = unserialize($_COOKIE['cart']);
         }
         $cart[$product_id] = $amount;
         setcookie('cart',serialize($cart),time()+(60*60*24*30),'/');
-        $path = '?r=product&id='.$_GET['id'];
-        header("Location: $path");
+        /* $path = '?r=product&id='.$_POST['id'];
+        header("Location: $path"); */
+        header("Location: ".$_SERVER['REQUEST_URI']);
     }
 
 
@@ -219,22 +223,8 @@
     }
 
 
-    function countGoodsCart() {
-        if (isset($_COOKIE['cart'])) {
-            $countGoodsCart = 0;
-            $array = unserialize($_COOKIE['cart']);
-            foreach ($array  as $id => $amount) {
-                $countGoodsCart += $amount;
-            }
-        } else {
-            $countGoodsCart = '0';
-        }
-        return $countGoodsCart;
-    }
-
-
-    if (isset($_GET['wl_product'])) {
-        $wl_id = cleanInput($_GET['wl_product']);
+    if (isset($_POST['wl_product'])) {
+        $wl_id = cleanInput($_POST['wl_product']);
         $wishlist = array();
         if (isset($_COOKIE['wishlist'])) {
             $wishlist = unserialize($_COOKIE['wishlist']);
@@ -245,18 +235,22 @@
             $wishlist[] = $wl_id;
         }
         setcookie('wishlist',serialize($wishlist),time()+86400*30,'/');
-        $path = '?r=product&id='.$_GET['wl_product'];
-        header("Location: $path");
+        header("Location: ".$_SERVER['REQUEST_URI']);
     }
 
 
     function getWishlist($products) {
+        $wishlist  = new stdClass();
+        $wishlist_products = array();
+        $total_amount = 0;
         if (isset($_COOKIE['wishlist'])) {
-            $wishlist_products = unserialize($_COOKIE['wishlist']);
-            $wishlist = array();
-            foreach ($wishlist_products as $product) {
-                $wishlist[] = getProduct($products, $product);
+            $ids = unserialize($_COOKIE['wishlist']);
+            foreach ($ids as $product) {
+                $wishlist_products[] = getProduct($products, $product);
+                $total_amount++;
             }
+            $wishlist->items = $wishlist_products;
+            $wishlist->total_amount = $total_amount;
             return $wishlist;
         } else {
             return null;
@@ -264,20 +258,205 @@
     }
 
 
-    function setProductsHistoryCookie()
-    {
+    if (isset($_GET['r']) && isset($_GET['id']) && $_GET['r'] == 'product') {
         $max_visited_products = 5;// Максимальное число хранимых товаров в истории
         $expire = time() + 86400 * 30; // Время жизни - 30 дней
         if (!empty($_COOKIE['browsed_products'])) {
             $browsed_products = explode(',', $_COOKIE['browsed_products']);
-    // Удалим текущий товар, если он был
+            // Удалим текущий товар, если он был
             if (($exists = array_search($_GET['id'], $browsed_products)) !== false) {
                 unset($browsed_products[$exists]);
             }
         }
-    // Добавим текущий товар
+        // Добавим текущий товар
         $browsed_products[] = $_GET['id'];
         $cookie_val = implode(',', array_slice($browsed_products, -$max_visited_products, $max_visited_products));
         setcookie("browsed_products", $cookie_val, $expire, "/");
     }
-    //var_dump($_COOKIE['browsed_products']);
+
+
+    function getBrowsedProducts($products) {
+        $view_products = array();
+        if (isset($_COOKIE['browsed_products'])) {
+            $ids = explode(',', $_COOKIE['browsed_products']);
+            foreach ($ids as $product) {
+                $view_products[] = getProduct($products, $product);
+            }
+            //var_dump($view_products);
+            return $view_products;
+        } else {
+            return null;
+        }
+    }
+
+
+
+    /*** ORDER ***/
+
+    if ($_SERVER['REQUEST_METHOD'] === "POST" && isset($_POST['make_order'])) {
+        $user_info = clearInputs($_POST);
+        //Если папки files/order нет, создадим её
+        if (!file_exists('files/order')) {
+            mkdir('files/order',0777);
+        }
+
+        $cart = getCart($products);
+        $put_txt = '';
+        $put_txt .= "========= Заказ № ".rand(1,1000)."========="."\n";
+        $put_txt .= 'Имя:'.$user_info['firstname']."\n";
+        $put_txt .= 'Фамилия:'.$user_info['lastname']."\n";
+        $put_txt .= 'Email:'.$user_info['email']."\n";
+        $put_txt .= 'Телефон:'.$user_info['phone']."\n";
+        $put_txt .= 'Город:'.$user_info['city']."\n";
+        $put_txt .= 'Область'.$user_info['region']."\n";
+        $put_txt .= 'Адрес доставки:'.$user_info['address']."\n";
+        $put_txt .= 'Комментарий:'.$user_info['message']."\n";
+        $put_txt .= 'Список товаров:'."\n";
+
+        $i = 1;
+        foreach ($cart->items as $item) {
+            $put_txt .= $i++ ." ".$item->name. "- ". $item->amount . " шт ". $item->amount*$item->variant->price . " грн"."\n";
+        }
+
+        file_put_contents('files/order/orders.txt', $put_txt, FILE_APPEND | LOCK_EX);
+
+        setcookie('cart','',time()-(60*60*24*30),'/');
+        header("Location:".$_SERVER['REQUEST_URI']);
+    }
+
+
+    function clearInputs($data) /* Функция для очистки массива входящих данных */
+    {
+        if (is_array($data)) {
+            $new_data = array();
+            foreach ($data as $key => $value) {
+                $new_data[$key] = cleanInput($value);
+            }
+            return $new_data;
+        }
+        return false;
+    }
+
+
+    if (($_SERVER['REQUEST_METHOD'] == 'POST') && isset($_POST['make_signup'])) {
+
+        $error_singup = array();
+
+        $pattern_name = '/^[а-яё][-_\.,а-яё0-9]{1,}\s*[а-яё][-_\.,а-яё0-9]*$/iu';
+        $user_name = mb_strtolower(trim($_POST['user_name']));
+
+        if (!preg_match($pattern_name, $user_name, $matches_name)) {
+            $error_singup['name'] = 'Имя может состоять только из букв русского алфавита и цифр, а также знаков - "-_,.". И должно быть длиннее 2-х символов.';
+        }
+
+
+        $pattern_login = '/^[a-z][-a-z0-9]{3,}$/i';
+        $user_login = mb_strtolower(trim($_POST['user_login']));
+
+        if (!preg_match($pattern_login, $user_login, $matches_login)) {
+            $error_singup['login'] = 'Логин может состоять только из букв латинского алфавита, цифр и дефиса. Логин должен быть не короче 4 знаков';
+        } else {
+            $handler = fopen('adm.txt', 'r');
+            while($line=fgets($handler)) {
+                $arr[] = explode('|||', $line);
+            }
+            foreach ($arr as $key => $user) {
+                if ($user[1] == $user_login) {
+                    $error_singup['login'] = 'Пользователь с таким логином уже существует';
+                }
+            }
+            fclose($handler);
+        }
+
+
+        $pattern_email = '/^(?!\.) #исключаем точку в начале имени пользователя
+                            ((?!(\.\.)|(\-\-))[-_\'.a-z0-9]){2,} #исключаем двойные точки и дефисы в имени пользователя
+                            (?<!\.)@ #исключаем точку в конце имени пользователя
+                            [-a-z0-9]+(\.[-a-z0-9]+)*\.[a-z]{2,}$/ix';
+        $user_email = mb_strtolower(trim($_POST['user_email']));
+
+        if (!preg_match($pattern_email, $user_email, $matches_email)) {
+            $error_singup['email'] = 'Введите корректный email';
+        } else {
+            $handler = fopen('adm.txt', 'r');
+            while($line=fgets($handler)) {
+                $arr[] = explode('|||', $line);
+            }
+            foreach ($arr as $key => $user) {
+                if ($user[2] == $user_email) {
+                    $error_singup['email'] = 'Пользователь с таким email уже существует';
+                }
+            }
+            fclose($handler);
+        }
+
+
+        $pattern_password = '/^[a-z0-9\/-\?\*\!]{8,}$/i';
+        $user_password = trim($_POST['user_password']);
+
+        if (!preg_match($pattern_password, $user_password, $matches_password)) {
+            $error_singup['password'] = 'Пароль может состоять только из букв латинского алфавита и цифр, а также знаков - "-/?*!". И должно быть не короче 8-ми символов.';
+        }
+        if (count($error_singup) == 0) {//or ! in if
+            addUser($user_name, $user_login, $user_email, $user_password); /*При успешной валидации формы, добавляем пользователя в базу*/
+            if (isset($_POST['user_agree']) && $_POST['user_agree'] === 'on') { /*Если пользователь подтвердил заполнить меня*/
+                $sign_date = array();
+                $sign_date['name'] = $user_name;
+                $sign_date['login'] = $user_login;
+                $sign_date['email'] = $user_email;
+
+                setcookie('about', serialize($sign_date), time() + (86400 * 30), '/');
+                //header("Location: " . $_SERVER['REQUEST_URI']);
+                header("Location: " . "index.php?r=login");
+
+            }
+        }
+    }
+
+
+    function addUser($name, $login, $email, $password)
+    {
+        $user_info = "";
+        $passw = password_hash($password, PASSWORD_DEFAULT);
+        $user_info .= $name."|||".$login."|||".$email."|||".$passw."|||"."\n";
+        file_put_contents('adm.txt', $user_info, FILE_APPEND | LOCK_EX);
+
+    }
+
+
+    if (($_SERVER['REQUEST_METHOD'] == 'POST') && isset($_POST['make_login'])) {
+        $pattern_login = '/^[a-z][-a-z0-9]{3,}$/i';
+        $user_login = mb_strtolower(trim($_POST['user_login']));
+        $pattern_password =  '/^[a-z0-9\/-\?\*\!]{8,}$/i';
+        $user_password = trim($_POST['user_password']);
+        if (preg_match($pattern_login, $user_login, $matches) && preg_match($pattern_password, $user_password, $matches_password)) {//or ! in if
+            getUser($user_login, $user_password);
+        }
+    }
+
+
+    function getUser($user_login, $user_password) {
+        $handler = fopen('adm.txt', 'r');
+        while($line=fgets($handler)) {
+            $arr[] = explode('|||', $line);
+        }
+        foreach ($arr as $key => $user) {
+            if ($user[1] == $user_login) {
+                if (password_verify($user_password, $user[3])) {
+                    $_SESSION['user'] = true;
+                } else {
+                    $_SESSION['user'] = false;
+                }
+            } else {
+                $_SESSION['user'] = false;
+            }
+        }
+        fclose($handler);
+    }
+
+
+    if (($_SERVER['REQUEST_METHOD'] == 'POST') && isset($_POST['unset_login'])) { /*Прервать сессию при клике на кнопку ВЫЙТИ*/
+        //session_start();
+        unset($_SESSION['user']);
+        //setcookie('about', '', time() - (86400 * 30), '/');
+    }
